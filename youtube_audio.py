@@ -2,18 +2,14 @@ import http.client
 import urllib.parse
 import urllib.request
 import re
-import youtube_dl
 import subprocess
 import os
-import sounddevice as sd
-import soundfile as sf
-import sys
+import pafy
 
 
 class AudioClient:
     def __init__(self):
-        self.audio_in = sd.default.device[0]
-        self.audio_out = sd.default.device[1]
+        pass
 
     @staticmethod
     def search(query):
@@ -32,13 +28,8 @@ class AudioClient:
 
     @staticmethod
     def get_download_link(vid_id):
-        sys.stdout = open(os.devnull, 'w')
-        ytd = youtube_dl.YoutubeDL({'outtmpl': '%(id)s%(ext)s'})
-        with ytd:
-            result = ytd.extract_info("https://www.youtube.com/watch?v=" + vid_id, download=False)
-            formats = result['formats']
-            sys.stdout = sys.__stdout__
-            return [x for x in formats if x['format_id'] == '139'][0]['url']
+        video = pafy.new("https://www.youtube.com/watch?v=" + vid_id)
+        return video.getbestaudio().url
 
     def download_video(self, vid_id, file_name="audio"):
         url = self.get_download_link(vid_id)
@@ -50,23 +41,29 @@ class AudioClient:
         file.close()
 
     @staticmethod
-    def convert_to_wav(in_file="audio", out_file="audio", cleanup=True):
-        cmd = "ffmpeg -i %s.mp3 %s.wav -loglevel quiet" % (in_file, out_file)
+    def convert_to_wav(in_file, out_file, cleanup=False):
+        cmd = "ffmpeg -i %s.mp3 %s.wav -loglevel panic -hidebanner" % (in_file, out_file)
         subprocess.call(cmd.split(" "))
         if cleanup:
             os.remove("audio.mp3")
 
-    def play_audio(self, file, cleanup=True):
-        self.convert_to_wav(in_file=file, cleanup=cleanup)
-        data, fs = sf.read("audio.wav", dtype='float32')
-        sd.default.device = [self.audio_in, self.audio_out]
-        sd.play(data, fs)
-        os.remove("audio.wav")
+    @staticmethod
+    def play_file(file, volume=50, cleanup=False):
+        cmd = "ffplay -loglevel panic -nodisp -volume %s -i %s" % (volume, file)
+        subprocess.call(cmd.split(" "))
+        if cleanup:
+            os.remove(file)
 
     @staticmethod
-    def stop_audio():
-        sd.stop()
+    def play_stream(url, volume=50, output=None):
+        # add customizable output
+        cmd = "ffplay -loglevel panic -nodisp -volume %s -i %s" % (volume, url)
+        subprocess.call(cmd.split(" "))
 
     @staticmethod
-    def query_audio_devices():
-        return sd.query_devices()
+    def stop():
+        subprocess.call(['ffplay', 'q'])
+
+    @staticmethod
+    def pause():
+        subprocess.call(['ffplay', 'p'])
