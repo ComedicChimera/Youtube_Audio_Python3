@@ -2,15 +2,24 @@ import http.client
 import urllib.parse
 import urllib.request
 import re
-import subprocess
-import os
+
+# mandatory installs
 import pafy
 
+# VLC must be installed in order for this to work
+import vlc
 
+
+# AudioClient
+# Primary Class Provided by YoutubeAudio
 class AudioClient:
     def __init__(self):
-        pass
+        self.player = vlc.MediaPlayer()
+        self.audio_out = None
+        self.is_playing = False
 
+    # execute http request to find youtube page containing results
+    # used to find response page
     @staticmethod
     def search(query):
         h1 = http.client.HTTPSConnection("www.youtube.com")
@@ -21,16 +30,25 @@ class AudioClient:
         response = h1.getresponse()
         return response.read()
 
+    # main search function
+    # takes in query and derives video id of first file
     def get_video_id(self, query):
         html = self.search(query)
         match = re.search(r"href=\"/watch[^\"]+", str(html))
         return match.group(0)[15:]
 
+    # get video data
+    @ staticmethod
+    def get_video_data(vid_id):
+        return pafy.new("https://www.youtube.com/watch?v=" + vid_id)
+
+    # obtains the best audio (mp3) download link from a specific video id
     @staticmethod
     def get_download_link(vid_id):
         video = pafy.new("https://www.youtube.com/watch?v=" + vid_id)
         return video.getbestaudio().url
 
+    # used to download a file from the video id
     def download_video(self, vid_id, file_name="audio"):
         url = self.get_download_link(vid_id)
         req = urllib.request.Request(url)
@@ -40,30 +58,54 @@ class AudioClient:
             file.write(data)
         file.close()
 
-    @staticmethod
-    def convert_to_wav(in_file, out_file, cleanup=False):
-        cmd = "ffmpeg -i %s.mp3 %s.wav -loglevel panic -hidebanner" % (in_file, out_file)
-        subprocess.call(cmd.split(" "))
-        if cleanup:
-            os.remove("audio.mp3")
+    # play back audio either from file path or from url
+    def play_audio(self, path):
+        self.player.set_mrl(path)
+        if self.audio_out:
+            self.player.audio_output_device_set(None, self.audio_out)
+        self.is_playing = True
+        self.player.play()
 
-    @staticmethod
-    def play_file(file, volume=50, cleanup=False):
-        cmd = "ffplay -loglevel panic -nodisp -volume %s -i %s" % (volume, file)
-        subprocess.call(cmd.split(" "))
-        if cleanup:
-            os.remove(file)
+    # stop audio playback - will fail if audio is not currently playing
+    def stop_audio(self):
+        if self.is_playing:
+            self.is_playing = False
+            self.player.stop()
+        else:
+            raise YoutubeAudioError("Unable to stop MediaPlayer not playing audio.")
 
-    @staticmethod
-    def play_stream(url, volume=50, output=None):
-        # add customizable output
-        cmd = "ffplay -loglevel panic -nodisp -volume %s -i %s" % (volume, url)
-        subprocess.call(cmd.split(" "))
+    # used to pause and unpause the audio stream
+    # False is playing, True is paused
+    def set_pause_state(self, state):
+        if self.is_playing:
+            self.player.set_pause(int(state))
+        else:
+            raise YoutubeAudioError("Unable to pause/resume MediaPlayer not playing audio.")
 
-    @staticmethod
-    def stop():
-        subprocess.call(['ffplay', 'q'])
+    # adjustable volume property
+    # can be set or fetched depending on use case
+    def volume(self, * value):
+        if value:
+            self.player.audio_set_volume(value[0])
+        else:
+            return self.player.audio_get_volume()
 
-    @staticmethod
-    def pause():
-        subprocess.call(['ffplay', 'p'])
+    # returns a list of all available audio devices
+    # keys are ids, values are descriptions
+    def query_output_devices(self):
+        devices = {}
+        mods = self.player.audio_output_device_enum()
+        if mods:
+            mod = mods
+            while mod:
+                mod = mod.contents
+                if mod.device.decode('ascii') != '':
+                    devices[mod.device.decode('ascii')] = mod.description.decode('ascii')
+                mod = mod.next
+        vlc.libvlc_audio_output_device_list_release(mods)
+        return devices
+
+
+# class for errors when using API
+class YoutubeAudioError(Exception):
+    pass
