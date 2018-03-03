@@ -17,6 +17,7 @@ class AudioClient:
         self.player = vlc.MediaPlayer()
         self.audio_out = None
         self.is_playing = False
+        self.update_audio_out = False
 
     # execute http request to find youtube page containing results
     # used to find response page
@@ -61,16 +62,25 @@ class AudioClient:
     # play back audio either from file path or from url
     def play_audio(self, path):
         self.player.set_mrl(path)
-        if self.audio_out:
-            self.player.audio_output_device_set(None, self.audio_out)
         self.is_playing = True
+        if self.update_audio_out and self.audio_out:
+            self.player.audio_output_device_set(None, self.audio_out)
+            self.update_audio_out = False
         self.player.play()
+
+    # set audio output
+    def set_audio_out(self, out):
+        if self.audio_out != out:
+            self.player.audio_output_device_set(None, out)
+            self.audio_out = out
 
     # stop audio playback - will fail if audio is not currently playing
     def stop_audio(self):
         if self.is_playing:
             self.is_playing = False
             self.player.stop()
+            self.update_audio_out = True
+            self.player = vlc.MediaPlayer()
         else:
             raise YoutubeAudioError("Unable to stop MediaPlayer not playing audio.")
 
